@@ -1,63 +1,58 @@
+
+
 import socket
+import threading
 
-END_RESULT = "<end-of-result>"
+HOST = "0.0.0.0"
+PORT = 5000
 
-# Création du socket serveur
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-server_ip = "192.168.1.185"
-server_port = 443
+def handle_client(client_socket: socket.socket, client_address: tuple[str, int]) -> None:
+    print(f"[+] Nouvelle connexion depuis {client_address}")
+    try:
+        while True:
+            data = client_socket.recv(4096)
+            if not data:
+                break
 
-server_socket.bind((server_ip, server_port))
-server_socket.listen(10)
+            message = data.decode("utf-8").strip()
+            if not message:
+                continue
 
-print(f"[*] Serveur en écoute sur {server_ip}:{server_port}...")
+            print(f"[{client_address}] {message}")
+            if message.lower() == "quit":
+                client_socket.sendall(b"Connexion ferm\u00e9e par le serveur.")
+                break
 
-# Attente d'une connexion
-client_socket, client_address = server_socket.accept()
+            response = f"Echo: {message}"
+            client_socket.sendall(response.encode("utf-8"))
+    except ConnectionResetError:
+        print(f"[-] Connexion interrompue par {client_address}")
+    finally:
+        client_socket.close()
+        print(f"[-] Déconnexion de {client_address}")
 
-print(f"[+] Client connecté : {client_address}")
 
-try:
-    while True:
-        command = input("Shell> ")
+def main() -> None:
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-        if command == "":
-            continue
-
-        # Envoi de la commande au client
-        client_socket.send(command.encode())
-
-        # Quitter
-        if command.lower() == "q":
-            break
-
-        # Réception de la réponse
-        full_result = b""
+    try:
+        server_socket.bind((HOST, PORT))
+        server_socket.listen(5)
+        print(f"[*] Serveur en écoute sur {HOST}:{PORT}")
 
         while True:
-            chunk = client_socket.recv(1024)
+            client_socket, client_address = server_socket.accept()
+            thread = threading.Thread(target=handle_client, args=(client_socket, client_address), daemon=True)
+            thread.start()
+    except KeyboardInterrupt:
+        print("\n[!] Arrêt du serveur")
+    finally:
+        server_socket.close()
 
-            if not chunk:
-                print("[!] Client déconnecté.")
-                break
 
-            if chunk.endswith(END_RESULT.encode()):
-                chunk = chunk[:-len(END_RESULT)]
-                full_result += chunk
-                break
+if __name__ == "__main__":
+    main()
 
-            full_result += chunk
 
-        print(full_result.decode(errors="ignore"))
-
-except KeyboardInterrupt:
-    print("\n[!] Arrêt du serveur.")
-
-except Exception as e:
-    print(f"[ERREUR] {e}")
-
-finally:
-    client_socket.close()
-    server_socket.close()
-    print("[*] Connexion fermée.")
